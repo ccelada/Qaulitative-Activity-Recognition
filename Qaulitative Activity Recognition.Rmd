@@ -1,0 +1,99 @@
+---
+title: "Qualitative Activity Recognition"
+author: "Carlos Celada"
+date: "August 24, 2014"
+output: html_document
+---
+
+The data used for the following analysis was gathered from various sensosrs attached to standard equipment used by weight lifters while performing a specific activity (unilateral dumbbell biceps curl). The objective is to detect some common mistakes that a subject can make during this activity. The subjects were asked to perform the activity in 5 different ways, labeled A, B, C, D and E. A represent the correct way to perform the activity, while the other 4 represent some common mistake.
+
+The original data can be downloaded from [this link](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+Data Analysis
+-------------
+
+Once the data has been downloaded to the working directory, it can be read using the following commands:
+
+```{r}
+library(caret)
+data <- read.csv("pml-training.csv", stringsAsFactors = FALSE)
+assignment <- read.csv("pml-testing.csv", stringsAsFactors = FALSE)
+```
+
+The first thing we can notice from the data is that the variable "new_window" has only two values ("yes" and "no"). Also, there are several variables that are only available for the observations where the new_window variable has the value "yes". It is not clear if these rows (labeled as new_window = "yes") correspond to summaries of the other observations (labeled as new_window = "no"). The rows where new_window = "yes" represent only a small fraction of all observations (about `r length(data$new_window[data$new_window == "yes"])/length(data$new_window)`)
+
+The rows where the variable new_window has the value "yes" will be excluded from the analysis, creating a new dataset (called data2):
+
+```{r}
+data2 <- data[data$new_window == "no",]
+```
+
+In order to be able to estimate out of sample error, we will divide our data in two sets: training set (75% of the observations) and testing set (25% of the observations)
+
+```{r}
+set.seed(1512)
+inTrain <- createDataPartition(data2$classe, p=0.75, list=FALSE)
+training <- data[inTrain,]
+testing <- data[-inTrain,]
+```
+
+Now, we can find the variables with zero variation, and also exclude them from the analysis since we won't be able to use them as predictors:
+
+```{r}
+nzv <- nearZeroVar(training[training$new_window=="no",], saveMetrics = TRUE)
+training_clean <- training[,!nzv$zeroVar]
+```
+
+we will also exclude the first six variables, as they appear to be descriptors of the specific observations and not likely to influence the variable we are trying to predict (how was the activity performed?). These variables as labeled as:
+
+* X
+* user_name
+* raw_timestamp_part_1
+* raw_timestamp_part_2
+* cvtd_timestamp
+* new_window
+* num_window
+
+```{r}
+training_clean <- training_clean[,7:59]
+```
+
+We will use a random forest model to predict the outcome (variable "classe") using the other 52 variables in the dataset. Our first model will include all 52 possible variables to predict how the activity is being performed.
+
+```{r}
+training_clean$classe <- as.factor(training_clean$classe)
+set.seed(1276)
+Model1 <- train(classe~., data=training_clean, method="rf",trControl = trainControl(method = "cv", number = 5))
+```
+
+Now we can explore the model obtained:
+
+```{r}
+Model1
+```
+
+We can see that the final model selected by the train function uses the parameter mtry = 2, and the estimated out of sample accuracy is 0.992 (out of sample error is 0.008). This is estimated by the train function using 5-fold cross validation.
+
+The OOB error rate (estimated by the random forest algorithm) is 0.67% as we can see from:
+
+```{r}
+Model1$finalModel
+```
+
+From the confusion matrix we can also determine the in-sample error wich is `r 1-96/14414`
+
+This first model has a low in-sample and out-of-sample error rates and it will be our final model. We can now try it on the testing dataset:
+
+```{r}
+predicted <- predict(Model1, testing)
+testing$classe <- as.factor(testing$classe)
+sum(predicted == testing$classe)/length(predicted)
+1-sum(predicted == testing$classe)/length(predicted)
+```
+
+We can see the out of sample error estimated on the testing dataset is 0.52%
+
+Conclusion
+----------
+
+Using a random forest model with 52 predictors we are able to predict with an expected error of 0.8% how this activity is being performed.
